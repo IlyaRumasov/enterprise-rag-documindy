@@ -1,0 +1,255 @@
+{
+  "name": "Document Indexing Service",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -144
+      ],
+      "id": "800fcf96-ed5c-447b-bf8d-1bd879950031",
+      "name": "[Trigger] Manual Sync Job / [Trigger] Ручний запуск синхронізації"
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "mimeType = 'application/pdf' and trashed = false and '<DRIVE_FOLDER_ID>' in parents"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        -144
+      ],
+      "id": "ef269d2f-e23f-48f1-bd9c-20dfd367399a",
+      "name": "API] List PDF Assets / [API] Пошук PDF-активів"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "files",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        448,
+        -144
+      ],
+      "id": "3d919617-c429-4152-a61a-b592656d814d",
+      "name": "Iterate: Process File List / Ітератор: Обробка списку файлів"
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        672,
+        -144
+      ],
+      "id": "ceb76652-636e-4429-88e3-85b5d557f40d",
+      "name": "[Storage] Fetch PDF Binary / [Storage] Завантаження PDF-файлу"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  // Отримуємо доступ до бінарних даних файлу\n  const binaryKey = Object.keys(item.binary)[0];\n\n  if (item.binary[binaryKey]) {\n    // Берeмо назву файлу з JSON (яку дав Google Drive)\n    // і записуємо її прямо у властивості файлу, щоб Loader її побачив\n    item.binary[binaryKey].fileName = item.json.name;\n  }\n\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -144
+      ],
+      "id": "ba1a263a-d774-4c52-99b0-6dfbbcb09ecc",
+      "name": "Script: Inject File Metadata / Скрипт: Ін'єкція метаданих файлу"
+    },
+    {
+      "parameters": {
+        "dataType": "binary",
+        "loader": "pdfLoader",
+        "textSplittingMode": "custom",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        1248,
+        80
+      ],
+      "id": "cbfe4283-192e-47ea-9f28-38d8f7993b90",
+      "name": "Util: PDF Data Loader / Утиліта: Завантажувач даних PDF"
+    },
+    {
+      "parameters": {
+        "chunkOverlap": 200,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        1328,
+        288
+      ],
+      "id": "ee6afc82-3e72-4c6f-935d-655b347428a6",
+      "name": "Util: Recursive Text Splitter / Утиліта: Рекурсивний розділювач тексту"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        80
+      ],
+      "id": "da63f20c-278d-49e4-8381-86cb6afb8923",
+      "name": "[AI] Encode Text Segments / [AI] Кодування текстових сегментів"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Policies_v4\n"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        1152,
+        -144
+      ],
+      "id": "2ea049ff-5df3-418f-bea8-a561954b16b0",
+      "name": "[DB] Upsert Knowledge Vectors / [DB] Оновлення векторів знань у базі"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "[Trigger] Manual Sync Job / [Trigger] Ручний запуск синхронізації": {
+      "main": [
+        [
+          {
+            "node": "API] List PDF Assets / [API] Пошук PDF-активів",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API] List PDF Assets / [API] Пошук PDF-активів": {
+      "main": [
+        [
+          {
+            "node": "Iterate: Process File List / Ітератор: Обробка списку файлів",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Iterate: Process File List / Ітератор: Обробка списку файлів": {
+      "main": [
+        [
+          {
+            "node": "[Storage] Fetch PDF Binary / [Storage] Завантаження PDF-файлу",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[Storage] Fetch PDF Binary / [Storage] Завантаження PDF-файлу": {
+      "main": [
+        [
+          {
+            "node": "Script: Inject File Metadata / Скрипт: Ін'єкція метаданих файлу",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Script: Inject File Metadata / Скрипт: Ін'єкція метаданих файлу": {
+      "main": [
+        [
+          {
+            "node": "[DB] Upsert Knowledge Vectors / [DB] Оновлення векторів знань у базі",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Util: PDF Data Loader / Утиліта: Завантажувач даних PDF": {
+      "ai_document": [
+        [
+          {
+            "node": "[DB] Upsert Knowledge Vectors / [DB] Оновлення векторів знань у базі",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Util: Recursive Text Splitter / Утиліта: Рекурсивний розділювач тексту": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Util: PDF Data Loader / Утиліта: Завантажувач даних PDF",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[AI] Encode Text Segments / [AI] Кодування текстових сегментів": {
+      "ai_embedding": [
+        [
+          {
+            "node": "[DB] Upsert Knowledge Vectors / [DB] Оновлення векторів знань у базі",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[DB] Upsert Knowledge Vectors / [DB] Оновлення векторів знань у базі": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "32286d33-63a8-472f-8155-917c033432a0",
+  "meta": {},
+  "id": "<WORKFLOW_ID>",
+  "tags": []
+}

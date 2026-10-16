@@ -1,0 +1,521 @@
+{
+  "name": "DocuMindy: Chat Bot",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "documindy-chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "cbdb1e9a-2bfd-46e8-a611-8acd46108ed8",
+      "name": "Google Chat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n-text",
+              "name": "chatInput",
+              "value": "={{ ($json.body?.chat?.messagePayload?.message?.argumentText ?? $json.body?.chat?.messagePayload?.message?.text ?? \"\").trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "n-session",
+              "name": "sessionId",
+              "value": "={{ ($json.body?.chat?.messagePayload?.space?.name ?? \"unknown\") + \"|\" + ($json.body?.chat?.user?.name ?? \"user\") }}",
+              "type": "string"
+            },
+            {
+              "id": "n-space",
+              "name": "space",
+              "value": "={{ $json.body?.chat?.messagePayload?.space?.name ?? \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "n-token",
+              "name": "idToken",
+              "value": "={{ ($json.headers?.authorization ?? \"\").replace(\"Bearer \", \"\") }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a08e2445-614d-49c2-9da6-4c7715192c33",
+      "name": "Normalize Chat Event",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        448,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.chatInput }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "leftValue": "={{ $json.space }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ab76989a-ea08-4239-8525-682ec0c56075",
+      "name": "Is Text Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://oauth2.googleapis.com/tokeninfo",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id_token",
+              "value": "={{ $json.idToken }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "0d85c834-cef0-4c1d-83e6-32700e16d9e5",
+      "name": "Verify Google Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        896,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.email ?? \"\" }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "service-<GCP_PROJECT_NUMBER>@gcp-sa-gsuiteaddons.iam.gserviceaccount.com"
+            },
+            {
+              "leftValue": "={{ $json.email_verified ?? \"\" }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "true"
+            },
+            {
+              "leftValue": "={{ $json.aud ?? \"\" }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "<N8N_URL>/webhook/documindy-chat"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4d65a214-85bd-4426-b390-06da999bfe75",
+      "name": "Token From Google Chat?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "<FLOWISE_URL>/api/v1/prediction/<FLOWISE_CHATFLOW_ID>",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ question: $(\"Normalize Chat Event\").item.json.chatInput, overrideConfig: { sessionId: $(\"Normalize Chat Event\").item.json.sessionId } }) }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "54e1ea98-287d-4aa9-b89e-62911444f10e",
+      "name": "Ask DocuMindy (Flowise)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1344,
+        96
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Flowise"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ev = $('Normalize Chat Event').first().json;\nconst r = $input.first().json;\nlet text = String(r.text || '').trim();\nconst notFound = text.startsWith('На жаль, у внутрішніх');\nconst esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nlet html = esc(text).replace(/\\*\\*(.+?)\\*\\*/g, '<b>$1</b>').replace(/^\\s*[*-]\\s+/gm, '• ').replace(/\\n/g, '<br>');\nif (html.length > 3500) html = html.slice(0, 3500) + '…';\nconst pages = {};\n(r.sourceDocuments || []).forEach(d => {\n  const m = d.metadata || {};\n  const f = m.fileName || m.source || m.name;\n  if (!f) return;\n  (pages[f] = pages[f] || new Set()).add(m.loc && m.loc.pageNumber);\n});\nconst src = notFound ? [] : Object.keys(pages).slice(0, 3).map(f => {\n  const p = Array.from(pages[f]).filter(Boolean).sort((a, b) => a - b);\n  return '📌 ' + esc(f.replace(/\\.pdf$/i, '')) + (p.length ? ', стор. ' + p.join(', ') : '');\n});\nconst widgets = [{ textParagraph: { text: html } }];\nif (src.length) widgets.push({ divider: {} }, { textParagraph: { text: '<font color=\"#808080\">' + src.join('<br>') + '</font>' } });\nconst body = { cardsV2: [{ cardId: 'documindyAnswer', card: { header: { title: 'DocuMindy', subtitle: 'Корпоративний асистент' }, sections: [{ widgets }] } }] };\nconst hash = s => { let a = 0xdeadbeef, b = 0x41c6ce57; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 2654435761); b = Math.imul(b ^ c, 1597334677); } a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909); b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909); return (4294967296 * (2097151 & b) + (a >>> 0)).toString(36); };\nconst first = (r.sourceDocuments || [])[0] || {};\nconst fm = first.metadata || {};\nconst log = {\n  askedAt: new Date().toISOString(),\n  userHash: hash('documindy|' + String(ev.sessionId).split('|').pop()),\n  question: String(ev.chatInput).slice(0, 500),\n  answered: !notFound,\n  topSource: fm.fileName || '',\n  topPage: (fm.loc && fm.loc.pageNumber) || 0,\n  sourceCount: (r.sourceDocuments || []).length,\n  answerChars: text.length\n};\nreturn [{ json: { space: ev.space, body, log } }];"
+      },
+      "id": "8bfea9a9-0032-4d4d-afba-3f2ab19857df",
+      "name": "Format Chat Card",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://chat.googleapis.com/v1/{{ $json.space }}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "id": "96d8a0f8-9903-4d9b-891f-c7d4a4e4d2ef",
+      "name": "Send Chat Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1792,
+        96
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google Service Account RAG-bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ev = $('Normalize Chat Event').first().json;\nconst body = { text: 'Сервіс DocuMindy тимчасово недоступний. Спробуйте ще раз за кілька хвилин.' };\nreturn [{ json: { space: ev.space, body } }];"
+      },
+      "id": "0742ddd1-4c49-4fb8-975c-2d0e2cd516cb",
+      "name": "Format Error Card",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## DocuMindy: чат-бот Google Chat\nWebhook (Google Chat) → перевірка Google ID-токена → Flowise (RAG по Qdrant) → картка з відповіддю та джерелами → Chat API.\nВебхук відповідає одразу, картка надсилається асинхронно. Якщо Flowise недоступний, користувач отримує повідомлення про помилку.\nCredentials: Flowise (Bearer), Google Service Account (scope chat.bot).",
+        "height": 300,
+        "width": 1128,
+        "color": 4
+      },
+      "id": "861f7446-8fd2-4ef1-abe8-cb3d21f09cd9",
+      "name": "Sticky Note 91bcd86e",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "1fafeb3a-b9dc-4538-8fee-9058dceb25df",
+      "name": "Acknowledge Google Chat",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        224,
+        96
+      ]
+    },
+    {
+      "id": "9ce1ad39-faa1-47ee-9cad-5ebe452073b6",
+      "name": "Log Question",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1820,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "<DATA_TABLE_ID>"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "askedAt": "={{ $json.log.askedAt }}",
+            "userHash": "={{ $json.log.userHash }}",
+            "question": "={{ $json.log.question }}",
+            "answered": "={{ $json.log.answered }}",
+            "topSource": "={{ $json.log.topSource }}",
+            "topPage": "={{ $json.log.topPage }}",
+            "sourceCount": "={{ $json.log.sourceCount }}",
+            "answerChars": "={{ $json.log.answerChars }}"
+          },
+          "schema": [
+            {
+              "id": "askedAt",
+              "displayName": "askedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "userHash",
+              "displayName": "userHash",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "question",
+              "displayName": "question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "answered",
+              "displayName": "answered",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "topSource",
+              "displayName": "topSource",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "topPage",
+              "displayName": "topPage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sourceCount",
+              "displayName": "sourceCount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "answerChars",
+              "displayName": "answerChars",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Normalize Chat Event": {
+      "main": [
+        [
+          {
+            "node": "Is Text Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Text Message?": {
+      "main": [
+        [
+          {
+            "node": "Verify Google Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Google Token": {
+      "main": [
+        [
+          {
+            "node": "Token From Google Chat?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token From Google Chat?": {
+      "main": [
+        [
+          {
+            "node": "Ask DocuMindy (Flowise)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask DocuMindy (Flowise)": {
+      "main": [
+        [
+          {
+            "node": "Format Chat Card",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Error Card",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Chat Card": {
+      "main": [
+        [
+          {
+            "node": "Send Chat Message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error Card": {
+      "main": [
+        [
+          {
+            "node": "Send Chat Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Chat Webhook": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge Google Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acknowledge Google Chat": {
+      "main": [
+        [
+          {
+            "node": "Normalize Chat Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  },
+  "pinData": {}
+}

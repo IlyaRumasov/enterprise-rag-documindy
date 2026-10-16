@@ -1,0 +1,342 @@
+{
+  "name": "Agentic RAG Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "📚 RAG-BOT Ecosystem (DocuMindy)\nІнтелектуальна база знань компанії\n\nIndexing: PDF з Google Drive ➔ Splitter ➔ OpenAI Embeddings ➔ Qdrant.\n\nOrchestration: Webhook (Google Chat) ➔ Agent (GPT-4o) + Memory ➔ Vector Retrieval ➔ Card Response.\n\nРезультат: Персональний асистент у чаті, що відповідає на запитання по документах зі стовідсотковою точністю та посиланнями на джерела.",
+        "height": 224,
+        "width": 464
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2384,
+        1328
+      ],
+      "typeVersion": 1,
+      "id": "1c620cc9-840e-4c34-bb80-372047b2832e",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "google-chat-bot",
+        "options": {
+          "rawBody": "={}",
+          "responseCode": {
+            "values": {}
+          },
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        2432,
+        912
+      ],
+      "id": "0b91cf04-e99d-4f8b-b2d6-98ec867ab8f5",
+      "name": "[Webhook] Inbound Chat Listener / [Webhook] Слухач вхідних повідомлень чату"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "aa7ad233-779f-4a72-8211-9241e404cf60",
+              "name": "chatInput",
+              "value": "={{ $json.body.chat.messagePayload.message.text }}",
+              "type": "string"
+            },
+            {
+              "id": "32ab6831-e653-4052-a22a-ba8eed8c2add",
+              "name": "sessionId",
+              "value": "={{ $json.body.chat.messagePayload.message.thread.name }}",
+              "type": "string"
+            },
+            {
+              "id": "842c67b8-fea9-4842-904c-8c4894a83c79",
+              "name": "",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2656,
+        912
+      ],
+      "id": "b8867143-3d81-4265-898c-231ed15b891f",
+      "name": "Transform: Map Request Data / Трансформація: Мапінг даних запиту"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ти — інтелектуальний корпоративний асистент DocuMindy. Твоя роль: допомагати співробітникам швидко знаходити точну інформацію у внутрішніх політиках, регламентах та правилах компанії.\n\nПРО ТЕБЕ (Self-awareness):\nЯкщо користувач запитує \"що ти вмієш?\", \"хто ти?\" або \"навіщо ти потрібен?\", відповідай: \"Я — DocuMindy, твій корпоративний помічник. Я допомагаю швидко знайти інформацію у внутрішніх документах компанії (регламенти, політики, інструкції). Просто постав мені запитання щодо правил роботи, відпусток, бонусів або процесів, і я знайду відповідь у базі знань.\" Після цього короткого пояснення НЕ використовуй інструмент пошуку.\n\nТВОЄ ЗАВДАННЯ:\nНадавати відповіді, базуючись ВИКЛЮЧНО на контексті завантажених документів. Ти не маєш використовувати зовнішні знання про світ, якщо вони суперечать або відсутні в документах.\n\nАЛГОРИТМ РОБОТИ (КРИТИЧНО ВАЖЛИВО):\n\n1. АНАЛІЗ КОНТЕКСТУ ТА ТРАНСФОРМАЦІЯ ЗАПИТУ (Memory):\nТи маєш доступ до історії чату через підключений вузол Memory. Інструмент пошуку (Retriever) НЕ має власної пам'яті, тому ТИ відповідальний за передачу контексту.\nПеред використанням інструменту пошуку проаналізуй останнє повідомлення користувача:\n   - Якщо це уточнення (наприклад: \"де це написано?\", \"а для менеджерів?\", \"які терміни?\", \"поясни докладніше\"):\n     Ти ЗОБОВ'ЯЗАНИЙ перефразувати це в повний пошуковий запит, використовуючи тему з попередніх повідомлень.\n     (Приклад: Юзер запитав про паролі, а потім каже \"де це написано?\" -> Твій внутрішній запит для Retriever має бути: \"в якому документі описана парольна політика та вимоги до паролів\").\n   - НІКОЛИ не відправляй в інструмент пошуку лише займенники \"це\", \"він\", \"тут\". Завжди замінюй їх на конкретні назви об'єктів з історії діалогу.\n\n2. ПОШУК:\nВикористовуй інструмент пошуку з твоїм СФОРМОВАНИМ повним запитом. Шукай за семантичним змістом.\n\n3. ФОРМУВАННЯ ВІДПОВІДІ:\n   - Якщо інформацію знайдено: надай детальну відповідь українською мовою. Використовуй марковані списки.\n   - ДЖЕРЕЛА (ОБОВ'ЯЗКОВО): Кожна відповідь, знайдена в базі, МАЄ завершуватися посиланням на документ.\n     Шукай назву файлу в метаданих: `fileName`, `source` або `name`.\n     Шукай сторінку в метаданих: `page` або `loc.pageNumber`.\n     Формат: \"📌 Джерело: [Назва файлу], стор. [Номер]\"\n   - Якщо в базі даних відповіді немає: відповідай \"На жаль, у внутрішніх регламентах компанії я не знайшов інформації з цього приводу. Будь ласка, зверніться до HR-відділу або вашого керівника\".\n\n⚠️ КРИТИЧНЕ ПРАВИЛО:\nТобі ЗАБОРОНЕНО вигадувати відповіді. Якщо ти не знайшов прямої згадки в документах через інструмент пошуку — так і скажи.\nКоли користувач питає \"де це написано?\" — ти МАЄШ взяти тему з попереднього речення (наприклад, \"паролі\"), знайти цей документ у базі ще раз і видати його НАЗВУ та СТОРІНКУ.\n\nЯкщо ти бачиш у метаданих `fileName: \"ПАРОЛЬНА ПОЛІТИКА (PASSWORD POLICY).pdf\"`, ти МУСИШ написати саме цю назву.\n\nТВІЙ ТОН: Професійний, лаконічний, об'єктивний та допоміжний.\n\nПитання користувача: {{ $json.chatInput }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        2928,
+        912
+      ],
+      "id": "97899c79-b92e-4fce-b57c-e916b65b277a",
+      "name": "[AI] Agentic RAG Engine / [AI] Агентський RAG-рушій"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2768,
+        1136
+      ],
+      "id": "03df7d3e-5050-4ac3-96c2-954dc637152f",
+      "name": "[API] Connect GPT-4o / [API] Підключення GPT-4o"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Transform: Map Request Data / Трансформація: Мапінг даних запиту').item.json.sessionId }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        2960,
+        1136
+      ],
+      "id": "619adf46-8030-4496-977b-c093f38b9e66",
+      "name": "[Mem] Load Chat History / [Mem] Завантаження історії чату"
+    },
+    {
+      "parameters": {
+        "description": "\"Цей інструмент містить базу знань з внутрішніми політиками, регламентами та правилами компанії. Використовуй його для пошуку відповідей на будь-які запитання користувачів щодо процесів у компанії\"",
+        "topK": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1.1,
+      "position": [
+        3136,
+        1136
+      ],
+      "id": "82661019-b507-447b-b6ca-8175223573d4",
+      "name": "[Tool] Knowledge Retrieval / [Tool] Витягування знань"
+    },
+    {
+      "parameters": {
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "Policies_v4\n",
+          "mode": "list",
+          "cachedResultName": "Policies_v4\n"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        3024,
+        1344
+      ],
+      "id": "cdcae3e8-84ce-46da-ad90-0c94645af2c0",
+      "name": "[DB] Qdrant Semantic Search / [DB] Семантичний пошук Qdrant"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Отримуємо вхідні дані з найпершої ноди (Webhook)\n// ЗАМІНИ 'Google Chat Webhook' на точну назву твоєї першої ноди, якщо вона інша!\nconst webhookData = $node[\"[Webhook] Inbound Chat Listener / [Webhook] Слухач вхідних повідомлень чату\"].json;\nconst agentOutput = $json.output; // Відповідь від AI\n\n// Витягуємо Space (кімнату або DM)\nconst chatSpace = webhookData.body.commonEventObject.space ? webhookData.body.commonEventObject.space.name : webhookData.body.chat.messagePayload.space.name;\n\n// Витягуємо Thread (нитку розмови), якщо вона є\nconst chatThread = webhookData.body.chat.messagePayload.message.thread ? webhookData.body.chat.messagePayload.message.thread.name : null;\n\nreturn {\n  output: agentOutput,\n  chat_space: chatSpace,\n  chat_thread: chatThread // Ми передамо це далі\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        912
+      ],
+      "id": "e507f09c-31c4-44e7-81bf-5c185856ac82",
+      "name": "Script: Format Chat Response / Скрипт: Форматування відповіді чату"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://chat.googleapis.com/v1/{{ $json.chat_space }}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"cardsV2\": [\n    {\n      \"cardId\": \"docuMindyResponse\",\n      \"card\": {\n        \"header\": {\n          \"title\": \"DocuMindy\",\n          \"subtitle\": \"Корпоративний асистент\",\n          \"imageUrl\": \"https://cdn-icons-png.flaticon.com/512/4712/4712035.png\",\n          \"imageType\": \"CIRCLE\"\n        },\n        \"sections\": [\n          {\n            \"header\": \"Відповідь:\",\n            \"widgets\": [\n              {\n                \"textParagraph\": {\n                  \"text\": {{ JSON.stringify(($json.output || '').replace(/\\n/g, '<br>')) }}\n                }\n              }\n            ]\n          },\n          {\n            \"widgets\": [\n              {\n                \"divider\": {}\n              },\n              {\n                \"textParagraph\": {\n                  \"text\": \"<font color=\\\"#808080\\\"><i>Інформація з внутрішньої бази знань</i></font>\"\n                }\n              }\n            ]\n          }\n        ]\n      }\n    }\n  ],\n  \"thread\": {\n    \"name\": {{ JSON.stringify($json.chat_thread) }}\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        3744,
+        912
+      ],
+      "id": "60c36733-a106-4d3a-885a-a0a833f627cd",
+      "name": "API] Dispatch Card Message / [API] Надсилання картки з відповіддю"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        3312,
+        1344
+      ],
+      "id": "ee700e46-a921-4042-886d-dc46daec952c",
+      "name": "[AI] Optimize Search Query / [AI] Оптимізація пошукового запиту"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        2944,
+        1536
+      ],
+      "id": "820a58db-ffe5-4732-a51c-55643b049757",
+      "name": "[AI] Generate Semantic Vectors / [AI] Генерація семантичних векторів"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "[Webhook] Inbound Chat Listener / [Webhook] Слухач вхідних повідомлень чату": {
+      "main": [
+        [
+          {
+            "node": "Transform: Map Request Data / Трансформація: Мапінг даних запиту",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform: Map Request Data / Трансформація: Мапінг даних запиту": {
+      "main": [
+        [
+          {
+            "node": "[AI] Agentic RAG Engine / [AI] Агентський RAG-рушій",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[AI] Agentic RAG Engine / [AI] Агентський RAG-рушій": {
+      "main": [
+        [
+          {
+            "node": "Script: Format Chat Response / Скрипт: Форматування відповіді чату",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[API] Connect GPT-4o / [API] Підключення GPT-4o": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "[AI] Agentic RAG Engine / [AI] Агентський RAG-рушій",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[Mem] Load Chat History / [Mem] Завантаження історії чату": {
+      "ai_memory": [
+        [
+          {
+            "node": "[AI] Agentic RAG Engine / [AI] Агентський RAG-рушій",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[Tool] Knowledge Retrieval / [Tool] Витягування знань": {
+      "ai_tool": [
+        [
+          {
+            "node": "[AI] Agentic RAG Engine / [AI] Агентський RAG-рушій",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[DB] Qdrant Semantic Search / [DB] Семантичний пошук Qdrant": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "[Tool] Knowledge Retrieval / [Tool] Витягування знань",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Script: Format Chat Response / Скрипт: Форматування відповіді чату": {
+      "main": [
+        [
+          {
+            "node": "API] Dispatch Card Message / [API] Надсилання картки з відповіддю",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[AI] Optimize Search Query / [AI] Оптимізація пошукового запиту": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "[Tool] Knowledge Retrieval / [Tool] Витягування знань",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[AI] Generate Semantic Vectors / [AI] Генерація семантичних векторів": {
+      "ai_embedding": [
+        [
+          {
+            "node": "[DB] Qdrant Semantic Search / [DB] Семантичний пошук Qdrant",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "d43cfdab-db96-4b82-b62c-158cd8183183",
+  "meta": {},
+  "id": "<WORKFLOW_ID>",
+  "tags": []
+}

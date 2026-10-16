@@ -1,0 +1,12 @@
+# секрети та локальні файли
+.env
+*.key
+*.pem
+.rag-keys.txt
+.n8n-key.txt
+.claude/
+*.local.json
+*.local.json.txt
+# тимчасові вигрузки
+*.raw.json
+.tmp/

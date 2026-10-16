@@ -1,0 +1,779 @@
+{
+  "name": "DocuMindy: Document Indexing",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "6d323e67-8048-4420-a0e6-fd7b6ca7c9f7",
+      "name": "Manual Sync",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-folder",
+              "name": "driveFolderId",
+              "value": "<DRIVE_FOLDER_ID>",
+              "type": "string"
+            },
+            {
+              "id": "cfg-qdrant",
+              "name": "qdrantUrl",
+              "value": "<QDRANT_URL>",
+              "type": "string"
+            },
+            {
+              "id": "cfg-coll",
+              "name": "collection",
+              "value": "documindy_policies",
+              "type": "string"
+            },
+            {
+              "id": "cfg-regex",
+              "name": "fileNameRegex",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "cfg-ids",
+              "name": "includeFileIds",
+              "value": "<INCLUDE_FILE_IDS_JSON>",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "86908677-6b20-421b-b1f9-0b5264ccd5ac",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 3
+            }
+          ]
+        }
+      },
+      "id": "329692dd-a382-45c5-8761-f91b64323a7d",
+      "name": "Nightly Sync 03:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "=mimeType = 'application/pdf' and trashed = false and '{{ $json.driveFolderId }}' in parents"
+            },
+            {
+              "name": "fields",
+              "value": "nextPageToken,files(id,name,modifiedTime)"
+            },
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "supportsAllDrives",
+              "value": "true"
+            },
+            {
+              "name": "includeItemsFromAllDrives",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "pageToken",
+                    "value": "={{ $response.body.nextPageToken }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.nextPageToken }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20
+            }
+          }
+        }
+      },
+      "id": "72ed4e95-6029-4d4f-b5eb-9f07398042d1",
+      "name": "List Drive PDFs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        240
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google Service Account RAG-bot"
+        },
+        "googleOAuth2Api": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google account"
+        },
+        "googleDriveOAuth2Api": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google Drive OAuth (DocuMindy)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "files",
+        "options": {}
+      },
+      "id": "37bc39c1-04da-446f-a692-3daccf4d88bc",
+      "name": "Split Files",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        672,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\n// білий список файлів бази знань (ID Drive); якщо порожній, діє фільтр за назвою\nconst ids = cfg.includeFileIds ? new Set(JSON.parse(cfg.includeFileIds)) : null;\nconst re = cfg.fileNameRegex ? new RegExp(cfg.fileNameRegex, 'i') : null;\nreturn $input.all()\n  .filter(i => (!ids && !re) || (ids && ids.has(i.json.id)) || (re && re.test(i.json.name)))\n  .map(i => ({ json: { id: i.json.id, name: i.json.name, modifiedTime: i.json.modifiedTime } }));"
+      },
+      "id": "4674df29-00bd-4d14-8658-4f5b0a8acb16",
+      "name": "Select Files by Name",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "done-at",
+              "name": "finishedAt",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f385bfd9-8d67-4713-aa88-dbeb21ff6c83",
+      "name": "Sync Finished",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.qdrantUrl }}/collections/{{ $('Config').first().json.collection }}/points/scroll",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "qdrantApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ limit: 1, with_payload: true, with_vector: false, filter: { must: [{ key: \"metadata.fileId\", match: { value: $json.id } }] } }) }}",
+        "options": {}
+      },
+      "id": "ef342aad-2e10-4b7e-956b-c4b69b1c1ed2",
+      "name": "Check Indexed Version",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1344,
+        96
+      ],
+      "credentials": {
+        "qdrantApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Qdrant account Selfhosted"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.result?.points?.[0]?.payload?.metadata?.modifiedTime ?? \"none\" }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "={{ $('Loop Over Files').item.json.modifiedTime }}"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b9704886-8d74-4d42-b18a-e140469642a4",
+      "name": "Already Up To Date?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "d8cbafa8-feca-4a38-9282-0bf91ee996e9",
+      "name": "Loop Over Files",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.qdrantUrl }}/collections/{{ $('Config').first().json.collection }}/points/delete?wait=true",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "qdrantApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: { must: [{ key: \"metadata.fileId\", match: { value: $(\"Loop Over Files\").item.json.id } }] } }) }}",
+        "options": {}
+      },
+      "id": "19852123-4a7a-43c6-be63-89ad09132716",
+      "name": "Delete Old Chunks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1792,
+        176
+      ],
+      "credentials": {
+        "qdrantApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Qdrant account Selfhosted"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fail-file",
+              "name": "failedFile",
+              "value": "={{ $('Loop Over Files').item.json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "fail-err",
+              "name": "error",
+              "value": "={{ $json.error?.message ?? \"unknown error\" }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "69db09fa-9816-402e-830a-0f19ba0b2665",
+      "name": "Log Failed File",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2736,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## DocuMindy: індексація PDF у Qdrant\nDrive (папка з політиками) → перевірка версії в Qdrant (modifiedTime) → видалення старих чанків файлу → завантаження PDF → чанки (1000/200) → Gemini embeddings → Qdrant.\nПовторний запуск безпечний: незмінені файли пропускаються, змінені перезаписуються без дублів.\nСекрети лежать у креденшлах n8n, не в нодах.",
+        "height": 200,
+        "width": 560,
+        "color": 4
+      },
+      "id": "564ff8b0-66c3-4c94-b0f7-d769f02a7945",
+      "name": "Sticky Note be0a2df4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        448,
+        -320
+      ]
+    },
+    {
+      "id": "d48342a7-8a99-4fec-8ea1-3c895a01391a",
+      "name": "Download PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2340,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://www.googleapis.com/drive/v3/files/' + $('Loop Over Files').item.json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "alt",
+              "value": "media"
+            },
+            {
+              "name": "supportsAllDrives",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google account"
+        },
+        "googleDriveOAuth2Api": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google Drive OAuth (DocuMindy)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "7cfcd991-4bad-45d8-b42e-2cb9815c8c9f",
+      "name": "Extract PDF Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2560,
+        300
+      ],
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "data",
+        "options": {
+          "joinPages": false
+        }
+      }
+    },
+    {
+      "id": "993e41b2-f8ae-4ede-a7de-90ac549d6cad",
+      "name": "Chunk Pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2780,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const file = $('Loop Over Files').first().json;\nconst pages = $input.first().json.text;\nconst pageArr = Array.isArray(pages) ? pages : [String(pages || '')];\nconst footer = /(Сторінка|Страница|Page)\\s*\\d+\\s*(з|из|of)\\s*\\d+/gi;\nconst junkHead = /(Історія змін|История изменений|Зміст|Содержание)/i;\nconst SIZE = 1000, OVERLAP = 200, BATCH = 90;\nconst chunks = [];\npageArr.forEach((raw, i) => {\n  const t = String(raw || '').replace(footer, ' ').replace(/[ \\t]+/g, ' ').replace(/\\n{3,}/g, '\\n\\n').trim();\n  if (t.length < 120) return;\n  if (junkHead.test(t.slice(0, 200)) && t.length < 1200) return;\n  let start = 0;\n  while (start < t.length) {\n    let end = Math.min(start + SIZE, t.length);\n    if (end < t.length) {\n      const cut = Math.max(t.lastIndexOf('\\n', end), t.lastIndexOf('. ', end));\n      if (cut > start + SIZE * 0.5) end = cut + 1;\n    }\n    const piece = t.slice(start, end).trim();\n    if (piece.length >= 100) chunks.push({ text: piece, page: i + 1 });\n    if (end >= t.length) break;\n    start = Math.max(end - OVERLAP, start + 1);\n  }\n});\nif (!chunks.length) return [{ json: { chunks: [], requests: [], hasChunks: false, fileName: file.name } }];\nconst out = [];\nfor (let b = 0; b < chunks.length; b += BATCH) {\n  const part = chunks.slice(b, b + BATCH);\n  out.push({ json: {\n    hasChunks: true,\n    fileName: file.name,\n    chunks: part,\n    requests: part.map(c => ({ model: 'models/gemini-embedding-001', content: { parts: [{ text: c.text }] }, taskType: 'RETRIEVAL_DOCUMENT', title: file.name }))\n  } });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "201c2139-55c0-462f-8578-6865e1fa3a26",
+      "name": "Has Chunks?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3000,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasChunks }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7a5102f0-68a9-431f-87a5-6620a8b6b9b9",
+      "name": "Embed Chunks (Gemini)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3220,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ requests: $json.requests }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "681ec3f7-d5b4-41a0-9c20-327e35328058",
+      "name": "Build Qdrant Points",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3440,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const file = $('Loop Over Files').first().json;\nconst batches = $('Chunk Pages').all();\nfunction uuid(s) {\n  let a = 0x9e3779b9, b = 0x85ebca6b, c = 0xc2b2ae35, d = 0x27d4eb2f;\n  for (let i = 0; i < s.length; i++) {\n    const k = s.charCodeAt(i);\n    a = Math.imul(a ^ k, 597399067); b = Math.imul(b ^ k, 2869860233);\n    c = Math.imul(c ^ k, 951274213); d = Math.imul(d ^ k, 2716044179);\n  }\n  a ^= (b ^ c ^ d); b ^= a; c ^= b; d ^= c;\n  const x = [a, b, c, d].map(v => (v >>> 0).toString(16).padStart(8, '0')).join('');\n  return x.slice(0, 8) + '-' + x.slice(8, 12) + '-4' + x.slice(13, 16) + '-8' + x.slice(17, 20) + '-' + x.slice(20, 32);\n}\nconst points = [];\nlet n = 0;\n$input.all().forEach((it, bi) => {\n  const chunks = batches[bi].json.chunks;\n  (it.json.embeddings || []).forEach((e, i) => {\n    points.push({\n      id: uuid(file.id + ':' + n),\n      vector: e.values,\n      payload: {\n        content: chunks[i].text,\n        metadata: { fileId: file.id, fileName: file.name, modifiedTime: file.modifiedTime, chunk: n, loc: { pageNumber: chunks[i].page } }\n      }\n    });\n    n++;\n  });\n});\nreturn [{ json: { points, count: points.length } }];"
+      }
+    },
+    {
+      "id": "9b34f102-a54d-4cde-b492-1a0009d04c9d",
+      "name": "Upsert Points to Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3660,
+        200
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Config').first().json.qdrantUrl }}/collections/{{ $('Config').first().json.collection }}/points?wait=true",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "qdrantApi",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ points: $json.points }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "credentials": {
+        "qdrantApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Qdrant account Selfhosted"
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Manual Sync": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "List Drive PDFs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nightly Sync 03:00": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Drive PDFs": {
+      "main": [
+        [
+          {
+            "node": "Split Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Files": {
+      "main": [
+        [
+          {
+            "node": "Select Files by Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Files by Name": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Indexed Version": {
+      "main": [
+        [
+          {
+            "node": "Already Up To Date?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Up To Date?": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Files",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delete Old Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Files": {
+      "main": [
+        [
+          {
+            "node": "Sync Finished",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Indexed Version",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Failed File": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Old Chunks": {
+      "main": [
+        [
+          {
+            "node": "Download PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download PDF": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Failed File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [
+        [
+          {
+            "node": "Chunk Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk Pages": {
+      "main": [
+        [
+          {
+            "node": "Has Chunks?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Chunks?": {
+      "main": [
+        [
+          {
+            "node": "Embed Chunks (Gemini)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed Chunks (Gemini)": {
+      "main": [
+        [
+          {
+            "node": "Build Qdrant Points",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Failed File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Qdrant Points": {
+      "main": [
+        [
+          {
+            "node": "Upsert Points to Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Points to Qdrant": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Files",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Failed File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "pinData": {}
+}
