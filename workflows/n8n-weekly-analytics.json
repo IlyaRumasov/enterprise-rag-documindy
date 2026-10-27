@@ -92,7 +92,8 @@
           "value": "<DATA_TABLE_ID>"
         },
         "returnAll": true
-      }
+      },
+      "executeOnce": true
     },
     {
       "id": "2ecd3d61-6b9b-4717-af81-43628ae3ac36",
@@ -105,7 +106,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const cfg = $('Config').first().json;\nconst since = Date.now() - cfg.daysBack * 86400000;\nconst rows = $input.all().map(i => i.json).filter(r => {\n  const t = Date.parse(r.askedAt);\n  const isTest = String(r.question || '').startsWith('[TEST]');\n  return t >= since && (cfg.includeTestRows || !isTest);\n});\nconst norm = q => String(q).replace(/^\\[TEST\\]\\s*/, '').trim().toLowerCase().replace(/[?!.]+$/, '');\nconst count = (arr) => { const m = {}; arr.forEach(x => { if (x) m[x] = (m[x] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };\nconst answered = rows.filter(r => r.answered);\nconst unanswered = rows.filter(r => !r.answered);\nconst unansweredList = Array.from(new Set(unanswered.map(r => String(r.question).replace(/^\\[TEST\\]\\s*/, '').trim()))).slice(0, 25);\nconst stats = {\n  total: rows.length,\n  users: new Set(rows.map(r => r.userHash)).size,\n  answered: answered.length,\n  unanswered: unanswered.length,\n  answeredPct: rows.length ? Math.round(answered.length * 100 / rows.length) : 0,\n  topQuestions: count(rows.map(r => norm(r.question))).slice(0, 5),\n  topSources: count(answered.map(r => String(r.topSource || '').replace(/\\.pdf$/i, ''))).slice(0, 5),\n  unansweredList,\n  days: cfg.daysBack\n};\nconst prompt = unansweredList.length\n  ? 'Ти аналітик бази знань компанії. Нижче запитання співробітників, на які бот не знайшов відповіді у внутрішніх документах. Згрупуй їх за темами і для кожної теми коротко запропонуй, який документ або розділ варто додати. Відповідай українською, маркованим списком, не більше 5 пунктів, без вступу.\\n\\nЗапитання:\\n- ' + unansweredList.join('\\n- ')\n  : '';\nreturn [{ json: { stats, prompt, hasUnanswered: unansweredList.length > 0, space: cfg.reportSpace } }];"
+        "jsCode": "const cfg = $('Config').first().json;\nconst since = Date.now() - cfg.daysBack * 86400000;\nconst rows = $input.all().map(i => i.json).filter(r => {\n  const t = Date.parse(r.askedAt);\n  const isTest = String(r.question || '').startsWith('[TEST]');\n  return t >= since && (cfg.includeTestRows || !isTest);\n});\nconst norm = q => String(q).replace(/^\\[TEST\\]\\s*/, '').trim().toLowerCase().replace(/[?!.]+$/, '');\nconst count = (arr) => { const m = {}; arr.forEach(x => { if (x) m[x] = (m[x] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };\nconst answered = rows.filter(r => r.answered);\nconst unanswered = rows.filter(r => !r.answered);\nconst unansweredList = Array.from(new Set(unanswered.map(r => String(r.question).replace(/^\\[TEST\\]\\s*/, '').trim()))).slice(0, 25);\nconst fb = $('Get Feedback').all().map(i => i.json).filter(r => r.rating && Date.parse(r.askedAt) >= since && (cfg.includeTestRows || !String(r.question || '').startsWith('TEST')));\nconst fbDownRows = fb.filter(r => r.rating === 'down');\nconst stats = {\n  total: rows.length,\n  users: new Set(rows.map(r => r.userHash)).size,\n  answered: answered.length,\n  unanswered: unanswered.length,\n  answeredPct: rows.length ? Math.round(answered.length * 100 / rows.length) : 0,\n  topQuestions: count(rows.map(r => norm(r.question))).slice(0, 5),\n  topSources: count(answered.map(r => String(r.topSource || '').replace(/\\.pdf$/i, ''))).slice(0, 5),\n  unansweredList,\n  days: cfg.daysBack,\n  fbUp: fb.filter(r => r.rating === 'up').length,\n  fbDown: fbDownRows.length,\n  fbDownList: fbDownRows.slice(0, 10).map(r => ({ q: String(r.question || '').slice(0, 120), src: String(r.topSource || '').replace(/\\.pdf$/i, '') }))\n};\nconst prompt = unansweredList.length\n  ? 'Ти аналітик бази знань компанії. Нижче запитання співробітників, на які бот не знайшов відповіді у внутрішніх документах. Згрупуй їх за темами і для кожної теми коротко запропонуй, який документ або розділ варто додати. Відповідай українською, маркованим списком, не більше 5 пунктів, без вступу.\\n\\nЗапитання:\\n- ' + unansweredList.join('\\n- ')\n  : '';\nreturn [{ json: { stats, prompt, hasUnanswered: unansweredList.length > 0, space: cfg.reportSpace } }];"
       }
     },
     {
@@ -177,7 +178,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const base = $('Build Stats').first().json;\nconst s = base.stats;\nlet gaps = '';\ntry {\n  const g = $('Summarize Gaps (Gemini)').first().json;\n  gaps = (((g.candidates || [])[0] || {}).content || {}).parts ? g.candidates[0].content.parts.map(p => p.text || '').join('') : '';\n} catch (e) { gaps = ''; }\nconst esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst md = t => esc(t).replace(/\\*\\*(.+?)\\*\\*/g, '<b>$1</b>').replace(/^\\s*[*-]\\s+/gm, '• ').replace(/\\n/g, '<br>');\nconst widgets = [];\nif (!s.total) {\n  widgets.push({ textParagraph: { text: 'За останні ' + s.days + ' дн. запитань до бота не було.' } });\n} else {\n  widgets.push({ textParagraph: { text: '<b>Запитань:</b> ' + s.total + ' від ' + s.users + ' користувачів<br><b>З відповіддю в базі:</b> ' + s.answered + ' (' + s.answeredPct + '%)<br><b>Без відповіді:</b> ' + s.unanswered } });\n  if (s.topQuestions.length) widgets.push({ divider: {} }, { textParagraph: { text: '<b>Найчастіше питають:</b><br>' + s.topQuestions.map(q => '• ' + esc(q[0]) + ' (' + q[1] + ')').join('<br>') } });\n  if (s.topSources.length) widgets.push({ divider: {} }, { textParagraph: { text: '<b>Найпопулярніші документи:</b><br>' + s.topSources.map(q => '• ' + esc(q[0]) + ' (' + q[1] + ')').join('<br>') } });\n  if (s.unansweredList.length) {\n    widgets.push({ divider: {} }, { textParagraph: { text: '<b>Чого немає в документах:</b><br>' + (gaps ? md(gaps) : s.unansweredList.slice(0, 10).map(q => '• ' + esc(q)).join('<br>')) } });\n  }\n}\nconst body = { cardsV2: [{ cardId: 'documindyWeekly', card: { header: { title: 'DocuMindy: тижневий звіт', subtitle: 'Останні ' + s.days + ' дн.' }, sections: [{ widgets }] } }] };\nreturn [{ json: { space: base.space, body } }];"
+        "jsCode": "const base = $('Build Stats').first().json;\nconst s = base.stats;\nlet gaps = '';\ntry {\n  const g = $('Summarize Gaps (Gemini)').first().json;\n  gaps = (((g.candidates || [])[0] || {}).content || {}).parts ? g.candidates[0].content.parts.map(p => p.text || '').join('') : '';\n} catch (e) { gaps = ''; }\nconst esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst md = t => esc(t).replace(/\\*\\*(.+?)\\*\\*/g, '<b>$1</b>').replace(/^\\s*[*-]\\s+/gm, '• ').replace(/\\n/g, '<br>');\nconst widgets = [];\nif (!s.total) {\n  widgets.push({ textParagraph: { text: 'За останні ' + s.days + ' дн. запитань до бота не було.' } });\n} else {\n  widgets.push({ textParagraph: { text: '<b>Запитань:</b> ' + s.total + ' від ' + s.users + ' користувачів<br><b>З відповіддю в базі:</b> ' + s.answered + ' (' + s.answeredPct + '%)<br><b>Без відповіді:</b> ' + s.unanswered } });\n  if (s.topQuestions.length) widgets.push({ divider: {} }, { textParagraph: { text: '<b>Найчастіше питають:</b><br>' + s.topQuestions.map(q => '• ' + esc(q[0]) + ' (' + q[1] + ')').join('<br>') } });\n  if (s.topSources.length) widgets.push({ divider: {} }, { textParagraph: { text: '<b>Найпопулярніші документи:</b><br>' + s.topSources.map(q => '• ' + esc(q[0]) + ' (' + q[1] + ')').join('<br>') } });\n  if (s.fbUp + s.fbDown) widgets.push({ divider: {} }, { textParagraph: { text: '<b>Оцінки відповідей:</b> 👍 ' + s.fbUp + ', 👎 ' + s.fbDown + ' (' + Math.round(s.fbUp * 100 / (s.fbUp + s.fbDown)) + '% позитивних)' + (s.fbDownList.length ? '<br><br><b>Погано оцінені:</b><br>' + s.fbDownList.map(f => '• ' + esc(f.q) + (f.src ? ' — ' + esc(f.src) : '')).join('<br>') : '') } });\n  if (s.unansweredList.length) {\n    widgets.push({ divider: {} }, { textParagraph: { text: '<b>Чого немає в документах:</b><br>' + (gaps ? md(gaps) : s.unansweredList.slice(0, 10).map(q => '• ' + esc(q)).join('<br>')) } });\n  }\n}\nconst body = { cardsV2: [{ cardId: 'documindyWeekly', card: { header: { title: 'DocuMindy: тижневий звіт', subtitle: 'Останні ' + s.days + ' дн.' }, sections: [{ widgets }] } }] };\nreturn [{ json: { space: base.space, body } }];"
       }
     },
     {
@@ -222,6 +223,28 @@
         "width": 1860,
         "height": 200
       }
+    },
+    {
+      "id": "d1d2c3d4-0001-4000-8000-000000000201",
+      "name": "Get Feedback",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        260
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "<FEEDBACK_TABLE_ID>"
+        },
+        "returnAll": true
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
     }
   ],
   "connections": {
@@ -240,7 +263,7 @@
       "main": [
         [
           {
-            "node": "Get Logged Questions",
+            "node": "Get Feedback",
             "type": "main",
             "index": 0
           }
@@ -314,6 +337,17 @@
         [
           {
             "node": "Send Report to Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Feedback": {
+      "main": [
+        [
+          {
+            "node": "Get Logged Questions",
             "type": "main",
             "index": 0
           }
