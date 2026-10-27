@@ -53,8 +53,8 @@ CASES = [
     ("Як довго діють ключі шифрування?", "CRYPTOGRAPHIC"),
     ("Які порти потрібні для віддаленого доступу?", "REMOTE ACCESS"),
     # документи, додані після розширення бази знань
-    ("Які дисциплінарні заходи застосовуються до працівників?", "Disciplinary"),
-    ("Що означає абревіатура TL у компанії?", "Glossary"),
+    ("Які дисциплінарні заходи застосовуються до працівників?", ("Disciplinary", "Дисциплінарна")),
+    ("Що означає абревіатура TL у компанії?", ("Glossary", "Глосарій")),
     ("Що входить в обхідний лист при звільненні?", "ливера"),
     ("Як налаштувати автовідповідь у пошті на час відпустки?", "автоответа"),
     ("Як вести облік робочого часу в Toggl?", "Toggl"),
@@ -88,11 +88,23 @@ FACTS = {'Скільки символів має бути в паролі кор
          'Скільки слів бажано писати в темі ділового листа?': '7',
          'Як налаштувати двоетапну автентифікацію для пошти Zimbra?': 'Authenticator'}
 
+# інструкції з розмітки (категорія markup): шукаємо лише в ній, як після префікса «розмітка:»
+MARKUP_CASES = []  # запитання за інструкціями з розмітки: додайте власні (запитання, фрагмент назви файлу)
+MARKUP_FILTER = {"must": [{"key": "metadata.category", "match": {"value": "markup"}}]}
 
-def ask(question):
+
+def is_refusal(text):
+    return "[NO_ANSWER]" in text or NOT_FOUND in text
+
+
+def ask(question, flt=None):
     url = f"{os.environ['FLOWISE_URL'].rstrip('/')}/api/v1/prediction/{os.environ['FLOWISE_CHATFLOW_ID']}"
-    body = json.dumps({"question": question,
-                       "overrideConfig": {"sessionId": "eval-" + uuid.uuid4().hex[:8]}},
+    override = {"sessionId": "eval-" + uuid.uuid4().hex[:8]}
+    if flt:
+        override["qdrantFilter"] = flt
+    elif os.environ.get("EVAL_QDRANT_FILTER"):  # фільтр за категорією, як у чат-бота
+        override["qdrantFilter"] = json.loads(os.environ["EVAL_QDRANT_FILTER"])
+    body = json.dumps({"question": question, "overrideConfig": override},
                       ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={
         "Content-Type": "application/json; charset=utf-8",
@@ -110,7 +122,7 @@ def main():
         names = [(d.get("metadata") or {}).get("fileName", "") for d in reply.get("sourceDocuments", [])][:TOP_SOURCES]
         if expected is None:
             abst_total += 1
-            ok = NOT_FOUND in text
+            ok = is_refusal(text)
             abst_ok += ok
             print(("OK   " if ok else "FAIL ") + question + "  ->  " + ("відмова" if ok else "відповів, хоча даних немає"))
             continue
@@ -124,8 +136,14 @@ def main():
             good = fact in text
             fact_ok += good
             line += "  факт " + ("є" if good else "НЕМАЄ")
-        answered_ok += 1 if (rank and NOT_FOUND not in text) else 0
+        answered_ok += 1 if (rank and not is_refusal(text)) else 0
         print(("OK   " if rank else "FAIL ") + question + "  ->  " + line)
+    mk_ok = 0
+    for question, expected in MARKUP_CASES:
+        names = [(d.get("metadata") or {}).get("fileName", "") for d in ask(question, MARKUP_FILTER).get("sourceDocuments", [])][:TOP_SOURCES]
+        hit = any(expected.lower() in n.lower() for n in names)
+        mk_ok += hit
+        print(("OK   " if hit else "FAIL ") + "[розмітка] " + question)
     n = len(ranks)
     mrr = sum(1 / r for r in ranks if r) / n
     print("\nМетрики пошуку по " + str(n) + " питаннях з відповіддю:")
@@ -136,7 +154,8 @@ def main():
     print(f"  Відповіді по суті (джерело знайдено і бот не відмовився): {answered_ok}/{n}")
     print(f"  Ключові факти у відповіді: {fact_ok}/{fact_total}")
     print(f"  Чесна відмова на питаннях без відповіді: {abst_ok}/{abst_total}")
-    failed = (n - sum(1 for r in ranks if r)) + (abst_total - abst_ok)
+    print(f"  Інструкції з розмітки (пошук у категорії markup): {mk_ok}/{len(MARKUP_CASES)}")
+    failed = (n - sum(1 for r in ranks if r)) + (abst_total - abst_ok) + (len(MARKUP_CASES) - mk_ok)
     return 1 if failed else 0
 
 

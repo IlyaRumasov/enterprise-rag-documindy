@@ -46,6 +46,12 @@
               "name": "includeFileIds",
               "value": "<INCLUDE_FILE_IDS_JSON>",
               "type": "string"
+            },
+            {
+              "id": "cfg-meta",
+              "name": "docMeta",
+              "value": "{}",
+              "type": "string"
             }
           ]
         },
@@ -167,7 +173,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const cfg = $('Config').first().json;\n// білий список файлів бази знань (ID Drive); якщо порожній, діє фільтр за назвою\nconst ids = cfg.includeFileIds ? new Set(JSON.parse(cfg.includeFileIds)) : null;\nconst re = cfg.fileNameRegex ? new RegExp(cfg.fileNameRegex, 'i') : null;\nreturn $input.all()\n  .filter(i => (!ids && !re) || (ids && ids.has(i.json.id)) || (re && re.test(i.json.name)))\n  .map(i => ({ json: { id: i.json.id, name: i.json.name, modifiedTime: i.json.modifiedTime } }));"
+        "jsCode": "const cfg = $('Config').first().json;\n// білий список файлів бази знань: ID Drive (includeFileIds) і/або назва файлу з довідника docMeta { назва: [категорія, підкатегорія] }\nconst ids = cfg.includeFileIds ? new Set(JSON.parse(cfg.includeFileIds)) : null;\nconst meta = cfg.docMeta ? JSON.parse(cfg.docMeta) : {};\nconst hasMeta = Object.keys(meta).length > 0;\nconst re = cfg.fileNameRegex ? new RegExp(cfg.fileNameRegex, 'i') : null;\nreturn $input.all()\n  .filter(i => (!ids && !re && !hasMeta) || (ids && ids.has(i.json.id)) || meta[i.json.name] || (re && re.test(i.json.name)))\n  .map(i => ({ json: { id: i.json.id, name: i.json.name, modifiedTime: i.json.modifiedTime, category: (meta[i.json.name] || [])[0] || 'other', sub: (meta[i.json.name] || [])[1] || '', vision: (meta[i.json.name] || [])[2] === 'v' } }));"
       },
       "id": "4674df29-00bd-4d14-8658-4f5b0a8acb16",
       "name": "Select Files by Name",
@@ -244,6 +250,15 @@
                 "operation": "equals"
               },
               "rightValue": "={{ $('Loop Over Files').item.json.modifiedTime }}"
+            },
+            {
+              "id": "v1",
+              "leftValue": "={{ !$('Loop Over Files').item.json.vision || $json.result?.points?.[0]?.payload?.metadata?.vision === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
             }
           ],
           "combinator": "and"
@@ -494,7 +509,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const file = $('Loop Over Files').first().json;\nconst batches = $('Chunk Pages').all();\nfunction uuid(s) {\n  let a = 0x9e3779b9, b = 0x85ebca6b, c = 0xc2b2ae35, d = 0x27d4eb2f;\n  for (let i = 0; i < s.length; i++) {\n    const k = s.charCodeAt(i);\n    a = Math.imul(a ^ k, 597399067); b = Math.imul(b ^ k, 2869860233);\n    c = Math.imul(c ^ k, 951274213); d = Math.imul(d ^ k, 2716044179);\n  }\n  a ^= (b ^ c ^ d); b ^= a; c ^= b; d ^= c;\n  const x = [a, b, c, d].map(v => (v >>> 0).toString(16).padStart(8, '0')).join('');\n  return x.slice(0, 8) + '-' + x.slice(8, 12) + '-4' + x.slice(13, 16) + '-8' + x.slice(17, 20) + '-' + x.slice(20, 32);\n}\nconst points = [];\nlet n = 0;\n$input.all().forEach((it, bi) => {\n  const chunks = batches[bi].json.chunks;\n  (it.json.embeddings || []).forEach((e, i) => {\n    points.push({\n      id: uuid(file.id + ':' + n),\n      vector: e.values,\n      payload: {\n        content: chunks[i].text,\n        metadata: { fileId: file.id, fileName: file.name, modifiedTime: file.modifiedTime, chunk: n, loc: { pageNumber: chunks[i].page } }\n      }\n    });\n    n++;\n  });\n});\nreturn [{ json: { points, count: points.length } }];"
+        "jsCode": "const file = $('Loop Over Files').first().json;\nconst batches = $('Chunk Pages').all();\nfunction uuid(s) {\n  let a = 0x9e3779b9, b = 0x85ebca6b, c = 0xc2b2ae35, d = 0x27d4eb2f;\n  for (let i = 0; i < s.length; i++) {\n    const k = s.charCodeAt(i);\n    a = Math.imul(a ^ k, 597399067); b = Math.imul(b ^ k, 2869860233);\n    c = Math.imul(c ^ k, 951274213); d = Math.imul(d ^ k, 2716044179);\n  }\n  a ^= (b ^ c ^ d); b ^= a; c ^= b; d ^= c;\n  const x = [a, b, c, d].map(v => (v >>> 0).toString(16).padStart(8, '0')).join('');\n  return x.slice(0, 8) + '-' + x.slice(8, 12) + '-4' + x.slice(13, 16) + '-8' + x.slice(17, 20) + '-' + x.slice(20, 32);\n}\nconst points = [];\nlet n = 0;\n$input.all().forEach((it, bi) => {\n  const chunks = batches[bi].json.chunks;\n  (it.json.embeddings || []).forEach((e, i) => {\n    points.push({\n      id: uuid(file.id + ':' + n),\n      vector: e.values,\n      payload: {\n        content: chunks[i].text,\n        metadata: { fileId: file.id, fileName: file.name, category: file.category || 'other', sub: file.sub || '', vision: !!file.vision, modifiedTime: file.modifiedTime, chunk: n, loc: { pageNumber: chunks[i].page } }\n      }\n    });\n    n++;\n  });\n});\nreturn [{ json: { points, count: points.length } }];"
       }
     },
     {
@@ -526,6 +541,94 @@
         }
       },
       "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const f = $('Loop Over Files').first().json;\nconst item = $input.first();\nif (f.vision) {\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n  item.json.pdfB64 = buf.toString('base64');\n}\nreturn [item];"
+      },
+      "id": "b1b2c3d4-0001-4000-8000-000000000101",
+      "name": "Encode PDF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2452,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "n1",
+              "leftValue": "={{ $('Loop Over Files').item.json.vision }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1b2c3d4-0002-4000-8000-000000000102",
+      "name": "Needs Vision?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2672,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ inline_data: { mime_type: 'application/pdf', data: $('Encode PDF').item.json.pdfB64 } }, { text: \"Ти обробляєш PDF-інструкцію з розмітки даних або внутрішній документ компанії. Для КОЖНОЇ сторінки поверни елемент {page, text}. У text дай: 1) весь видимий текст сторінки; 2) стислий опис кожного зображення, схеми, скриншота або прикладу розмітки: що саме показано і яке правило чи клас це ілюструє. Пиши мовою документа. Не вигадуй: описуй лише те, що видно на сторінці.\" }] }], generationConfig: { temperature: 0, maxOutputTokens: 60000, responseMimeType: 'application/json', responseSchema: { type: 'ARRAY', items: { type: 'OBJECT', properties: { page: { type: 'INTEGER' }, text: { type: 'STRING' } }, required: ['page', 'text'] } } } }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "b1b2c3d4-0003-4000-8000-000000000103",
+      "name": "Read Pages With Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2896,
+        620
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Extract PDF Text').first().json.text;\nconst pages = Array.isArray(base) ? base : [String(base || '')];\nlet v = [];\ntry { v = JSON.parse($input.first().json.candidates[0].content.parts[0].text); } catch (e) { v = []; }\nconst byPage = {};\nv.forEach(x => { byPage[x.page] = String(x.text || ''); });\nconst n = Math.max(pages.length, ...v.map(x => x.page || 0));\nconst merged = [];\nfor (let i = 0; i < n; i++) {\n  const native = String(pages[i] || '').trim();\n  merged.push(native.length >= 400 || !byPage[i + 1] ? native : byPage[i + 1]);\n}\nreturn [{ json: { text: merged } }];"
+      },
+      "id": "b1b2c3d4-0004-4000-8000-000000000104",
+      "name": "Merge Vision Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        620
+      ]
     }
   ],
   "connections": {
@@ -668,7 +771,7 @@
       "main": [
         [
           {
-            "node": "Extract PDF Text",
+            "node": "Encode PDF",
             "type": "main",
             "index": 0
           }
@@ -686,7 +789,7 @@
       "main": [
         [
           {
-            "node": "Chunk Pages",
+            "node": "Needs Vision?",
             "type": "main",
             "index": 0
           }
@@ -763,6 +866,57 @@
         [
           {
             "node": "Log Failed File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Encode PDF": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Vision?": {
+      "main": [
+        [
+          {
+            "node": "Read Pages With Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chunk Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Pages With Gemini": {
+      "main": [
+        [
+          {
+            "node": "Merge Vision Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Vision Text": {
+      "main": [
+        [
+          {
+            "node": "Chunk Pages",
             "type": "main",
             "index": 0
           }

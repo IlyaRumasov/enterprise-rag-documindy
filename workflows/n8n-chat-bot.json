@@ -25,7 +25,7 @@
             {
               "id": "n-text",
               "name": "chatInput",
-              "value": "={{ ($json.body?.chat?.messagePayload?.message?.argumentText ?? $json.body?.chat?.messagePayload?.message?.text ?? \"\").trim() }}",
+              "value": "={{ $json.body?.commonEventObject?.parameters?.rating ? '__feedback__' : (() => { const r = ($json.body?.chat?.messagePayload?.message?.argumentText ?? $json.body?.chat?.messagePayload?.message?.text ?? \"\").trim(); const s = r.replace(/^(політик|інструкці|hr|податк|посад|ролі|розмітк|всі|все)[^\\s:]*\\s*:\\s*/i, '').trim(); return s || r; })() }}",
               "type": "string"
             },
             {
@@ -37,13 +37,49 @@
             {
               "id": "n-space",
               "name": "space",
-              "value": "={{ $json.body?.chat?.messagePayload?.space?.name ?? \"\" }}",
+              "value": "={{ $json.body?.chat?.messagePayload?.space?.name ?? $json.body?.chat?.buttonClickedPayload?.space?.name ?? \"\" }}",
               "type": "string"
             },
             {
               "id": "n-token",
               "name": "idToken",
               "value": "={{ ($json.headers?.authorization ?? \"\").replace(\"Bearer \", \"\") }}",
+              "type": "string"
+            },
+            {
+              "id": "n-cat",
+              "name": "category",
+              "value": "={{ (() => { const m = ($json.body?.chat?.messagePayload?.message?.argumentText ?? $json.body?.chat?.messagePayload?.message?.text ?? \"\").trim().toLowerCase().match(/^(політик|інструкці|hr|податк|посад|ролі|розмітк|всі|все)[^\\s:]*\\s*:/); const k = { 'політик': 'policy', 'інструкці': 'howto', 'hr': 'hr', 'податк': 'hr', 'посад': 'role', 'ролі': 'role', 'розмітк': 'markup', 'всі': 'all', 'все': 'all' }; return m ? k[m[1]] : ''; })() }}",
+              "type": "string"
+            },
+            {
+              "id": "n-cmd",
+              "name": "command",
+              "value": "={{ (() => { const r = ($json.body?.chat?.messagePayload?.message?.argumentText ?? $json.body?.chat?.messagePayload?.message?.text ?? \"\").trim().toLowerCase().replace(/[?!.\\s]+$/, ''); const K = { 'політик': 'policy', 'інструкці': 'howto', 'hr': 'hr', 'податк': 'hr', 'посад': 'role', 'ролі': 'role', 'розмітк': 'markup' }; if (/^(інструкція|інструкцію|гайд|guide|manual|повна інструкція|покажи інструкцію|як користуватися ботом|як користуватись ботом|як користуватися тобою|як тобою користуватися|як тобою користуватись|як користуватися docum\\w+|how to use the bot|how to use you)$/.test(r)) return 'guide'; if (/^(\\/?help|\\/?start|допомога|довідка|привіт|вітаю|hello|hi|хто ти|хто ви|що ти вмієш|що ти можеш|що ви вмієте|що ви можете|що вмієш|що можеш|що ти вмієш робити|what can you do|what do you do|who are you)$/.test(r)) return 'help'; if (/^(категорії|categories|список категорій|які є категорії|які категорії є)$/.test(r)) return 'categories'; let m = r.match(/^(політик|інструкці|hr|податк|посад|ролі|розмітк)[^\\s:]*\\s*:?$/); if (!m) m = r.match(/^що (?:у тебе |є |у вас )*(?:в|у) категорі[їюя]\\s+(політик|інструкці|hr|податк|посад|ролі|розмітк)\\S*$/); return m ? 'list:' + K[m[1]] : ''; })() }}",
+              "type": "string"
+            },
+            {
+              "id": "n-rating",
+              "name": "rating",
+              "value": "={{ $json.body?.commonEventObject?.parameters?.rating ?? '' }}",
+              "type": "string"
+            },
+            {
+              "id": "n-fbQuestion",
+              "name": "fbQuestion",
+              "value": "={{ $json.body?.commonEventObject?.parameters?.question ?? '' }}",
+              "type": "string"
+            },
+            {
+              "id": "n-fbSource",
+              "name": "fbSource",
+              "value": "={{ $json.body?.commonEventObject?.parameters?.source ?? '' }}",
+              "type": "string"
+            },
+            {
+              "id": "n-fbCategory",
+              "name": "fbCategory",
+              "value": "={{ $json.body?.commonEventObject?.parameters?.category ?? '' }}",
               "type": "string"
             }
           ]
@@ -182,7 +218,7 @@
         "genericAuthType": "httpBearerAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ question: $(\"Normalize Chat Event\").item.json.chatInput, overrideConfig: { sessionId: $(\"Normalize Chat Event\").item.json.sessionId } }) }}",
+        "jsonBody": "={{ JSON.stringify({ question: $(\"Normalize Chat Event\").item.json.chatInput, overrideConfig: Object.assign({ sessionId: $(\"Normalize Chat Event\").item.json.sessionId }, (['policy', 'howto', 'hr', 'role', 'markup'].includes($('Set Category').item.json.category) ? { qdrantFilter: { must: [{ key: 'metadata.category', match: { value: $('Set Category').item.json.category } }] } } : {})) }) }}",
         "options": {
           "timeout": 90000
         }
@@ -192,7 +228,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        1344,
+        2016,
         96
       ],
       "credentials": {
@@ -205,14 +241,14 @@
     },
     {
       "parameters": {
-        "jsCode": "const ev = $('Normalize Chat Event').first().json;\nconst r = $input.first().json;\nlet text = String(r.text || '').trim();\nconst notFound = text.startsWith('На жаль, у внутрішніх');\nconst esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nlet html = esc(text).replace(/\\*\\*(.+?)\\*\\*/g, '<b>$1</b>').replace(/^\\s*[*-]\\s+/gm, '• ').replace(/\\n/g, '<br>');\nif (html.length > 3500) html = html.slice(0, 3500) + '…';\nconst pages = {};\n(r.sourceDocuments || []).forEach(d => {\n  const m = d.metadata || {};\n  const f = m.fileName || m.source || m.name;\n  if (!f) return;\n  (pages[f] = pages[f] || new Set()).add(m.loc && m.loc.pageNumber);\n});\nconst src = notFound ? [] : Object.keys(pages).slice(0, 3).map(f => {\n  const p = Array.from(pages[f]).filter(Boolean).sort((a, b) => a - b);\n  return '📌 ' + esc(f.replace(/\\.pdf$/i, '')) + (p.length ? ', стор. ' + p.join(', ') : '');\n});\nconst widgets = [{ textParagraph: { text: html } }];\nif (src.length) widgets.push({ divider: {} }, { textParagraph: { text: '<font color=\"#808080\">' + src.join('<br>') + '</font>' } });\nconst body = { cardsV2: [{ cardId: 'documindyAnswer', card: { header: { title: 'DocuMindy', subtitle: 'Корпоративний асистент' }, sections: [{ widgets }] } }] };\nconst hash = s => { let a = 0xdeadbeef, b = 0x41c6ce57; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 2654435761); b = Math.imul(b ^ c, 1597334677); } a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909); b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909); return (4294967296 * (2097151 & b) + (a >>> 0)).toString(36); };\nconst first = (r.sourceDocuments || [])[0] || {};\nconst fm = first.metadata || {};\nconst log = {\n  askedAt: new Date().toISOString(),\n  userHash: hash('documindy|' + String(ev.sessionId).split('|').pop()),\n  question: String(ev.chatInput).slice(0, 500),\n  answered: !notFound,\n  topSource: fm.fileName || '',\n  topPage: (fm.loc && fm.loc.pageNumber) || 0,\n  sourceCount: (r.sourceDocuments || []).length,\n  answerChars: text.length\n};\nreturn [{ json: { space: ev.space, body, log } }];"
+        "jsCode": "const LBL = { policy: 'Політики', howto: 'Інструкції', hr: 'HR і податки', role: 'Профілі посад', markup: 'Розмітка' };\nconst cat = $('Set Category').first().json.category;\nconst retried = $('Ask DocuMindy (All Categories)').isExecuted;\nconst ev = $('Normalize Chat Event').first().json;\nconst r = $input.first().json;\nlet text = String(r.text || '').trim();\nconst notFound = text.includes('[NO_ANSWER]') || text.startsWith('На жаль, у внутрішніх');\ntext = text.replace('[NO_ANSWER]', '').trim();\nconst esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nlet html = esc(text).replace(/\\*\\*(.+?)\\*\\*/g, '<b>$1</b>').replace(/^\\s*[*-]\\s+/gm, '• ').replace(/\\n/g, '<br>');\nif (html.length > 3500) html = html.slice(0, 3500) + '…';\nconst pages = {};\n(r.sourceDocuments || []).forEach(d => {\n  const m = d.metadata || {};\n  const f = m.fileName || m.source || m.name;\n  if (!f) return;\n  (pages[f] = pages[f] || new Set()).add(m.loc && m.loc.pageNumber);\n});\nconst src = notFound ? [] : Object.keys(pages).slice(0, 3).map(f => {\n  const p = Array.from(pages[f]).filter(Boolean).sort((a, b) => a - b);\n  return '📌 ' + esc(f.replace(/\\.pdf$/i, '')) + (p.length ? ', стор. ' + p.join(', ') : '');\n});\nconst hint = (!retried && LBL[cat]) ? (notFound ? '🗂 Шукав у категорії «' + LBL[cat] + '». Щоб шукати всюди, почніть запит із «всі:»' : '🗂 Категорія: ' + LBL[cat]) : '';\nif (hint) src.push(hint);\nconst widgets = [{ textParagraph: { text: html } }];\nif (src.length) widgets.push({ divider: {} }, { textParagraph: { text: '<font color=\"#808080\">' + src.join('<br>') + '</font>' } });\nconst FB_URL = '<WEBHOOK_URL>';\nconst topFile = ((r.sourceDocuments || [])[0] || {}).metadata?.fileName || '';\nconst fbp = v => [{ key: 'rating', value: v }, { key: 'question', value: String(ev.chatInput).slice(0, 150) }, { key: 'source', value: String(topFile).slice(0, 80) }, { key: 'category', value: (cat && cat !== 'all') ? cat : '' }];\nwidgets.push({ buttonList: { buttons: [{ text: '👍', onClick: { action: { function: FB_URL, parameters: fbp('up') } } }, { text: '👎', onClick: { action: { function: FB_URL, parameters: fbp('down') } } }] } });\nconst body = { cardsV2: [{ cardId: 'documindyAnswer', card: { header: { title: 'DocuMindy', subtitle: 'Корпоративний асистент' }, sections: [{ widgets }] } }] };\nconst hash = s => { let a = 0xdeadbeef, b = 0x41c6ce57; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 2654435761); b = Math.imul(b ^ c, 1597334677); } a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909); b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909); return (4294967296 * (2097151 & b) + (a >>> 0)).toString(36); };\nconst first = (r.sourceDocuments || [])[0] || {};\nconst fm = first.metadata || {};\nconst log = {\n  askedAt: new Date().toISOString(),\n  userHash: hash('documindy|' + String(ev.sessionId).split('|').pop()),\n  question: String(ev.chatInput).slice(0, 500),\n  answered: !notFound,\n  topSource: fm.fileName || '',\n  topPage: (fm.loc && fm.loc.pageNumber) || 0,\n  sourceCount: (r.sourceDocuments || []).length,\n  answerChars: text.length\n};\nreturn [{ json: { space: ev.space, body, log } }];"
       },
       "id": "8bfea9a9-0032-4d4d-afba-3f2ab19857df",
       "name": "Format Chat Card",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1568,
+        2688,
         0
       ]
     },
@@ -232,7 +268,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        1792,
+        2912,
         96
       ],
       "credentials": {
@@ -251,7 +287,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1568,
+        2688,
         192
       ]
     },
@@ -294,7 +330,7 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        1820,
+        2940,
         300
       ],
       "parameters": {
@@ -395,6 +431,378 @@
         "options": {}
       },
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Normalize Chat Event').item.json.category }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Has Category Prefix?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: \"Визнач, до якої категорії корпоративної бази знань належить запитання працівника.\\npolicy: політики безпеки та процедури компанії (паролі, доступи, інциденти, дисципліна, кодекс поведінки, захист даних).\\nhowto: інструкції до внутрішніх систем і процесів (Redmine, пошта Zimbra, LMS, 1С, заявки, ЕЦП, автовідповідь).\\nhr: HR, податки, декларування, довідка резидента, відпустки, оцінка Performance Review, довідки.\\nrole: профілі посад і ролі, обов'язки позиції.\\nmarkup: інструкції з розмітки та анотації даних для клієнтських проєктів (bounding box, keypoints, OCR, сегментація, класи об'єктів, правила анотації, приклади розмітки).\\nall: якщо запитання загальне, незрозуміле або стосується кількох категорій.\\nЗапитання: \" + $('Normalize Chat Event').item.json.chatInput }] }], generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { category: { type: 'STRING', enum: ['policy', 'howto', 'hr', 'role', 'markup', 'all'] } }, required: ['category'] } } }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Classify Category (Gemini)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1568,
+        224
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "category",
+              "value": "={{ $('Normalize Chat Event').item.json.category || (() => { try { return JSON.parse($json.candidates[0].content.parts[0].text).category; } catch (e) { return 'all'; } })() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Set Category",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1792,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "f1",
+              "leftValue": "={{ String($json.text || '').includes('[NO_ANSWER]') || String($json.text || '').startsWith('На жаль, у внутрішніх') }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "f2",
+              "leftValue": "={{ ['policy', 'howto', 'hr', 'role', 'markup'].includes($('Set Category').item.json.category) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "f3",
+              "leftValue": "={{ ($('Normalize Chat Event').item.json.category || '') !== 'all' }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "name": "Answer Not Found In Category?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2240,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "<FLOWISE_URL>/api/v1/prediction/<FLOWISE_CHATFLOW_ID>",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ question: $(\"Normalize Chat Event\").item.json.chatInput, overrideConfig: { sessionId: $(\"Normalize Chat Event\").item.json.sessionId } }) }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Ask DocuMindy (All Categories)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2464,
+        330
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Flowise"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "s1",
+              "leftValue": "={{ $('Normalize Chat Event').item.json.command }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0006-4000-8000-000000000006",
+      "name": "Is Service Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=<QDRANT_URL>/collections/documindy_policies/facet",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "qdrantApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const c = $('Normalize Chat Event').item.json.command; if (c.startsWith('list:')) return JSON.stringify({ key: 'metadata.fileName', limit: 300, exact: true, filter: { must: [{ key: 'metadata.category', match: { value: c.slice(5) } }] } }); return JSON.stringify({ key: 'metadata.category', limit: 20, exact: true }); })() }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "a1b2c3d4-0007-4000-8000-000000000007",
+      "name": "List Documents (Qdrant)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1568,
+        -224
+      ],
+      "credentials": {
+        "qdrantApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Qdrant account Selfhosted"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ev = $('Normalize Chat Event').first().json;\nconst cmd = ev.command;\nconst hits = ($input.first().json.result?.hits) || [];\nconst LBL = { policy: 'Політики та процедури', howto: 'Інструкції до систем', hr: 'HR і податки', role: 'Профілі посад', markup: 'Розмітка (клієнтські інструкції)' };\nconst PFX = { policy: 'політики:', howto: 'інструкції:', hr: 'hr:', role: 'посади:', markup: 'розмітка:' };\nconst DESC = { policy: 'безпека, доступи, дисципліна, кодекс поведінки', howto: 'Redmine, пошта, LMS, 1С, ЕЦП', hr: 'відпустки, податки, довідки, Performance Review', role: 'обов\\'язки позицій', markup: 'правила розмітки даних для клієнтських проєктів' };\nconst esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst sec = (header, html) => ({ header, widgets: [{ textParagraph: { text: html } }] });\nif (cmd === 'guide') {\n  const sections = [\n    sec('Як питати', 'Пишіть звичайним реченням і конкретно. Називайте проєкт, систему чи документ («у проєкті <назва>», «в Redmine»).<br>Питайте українською, російською або англійською: відповідь буде мовою запитання.<br>Уточнення працюють у тому ж чаті: «а де це написано?». Якщо запитання загальне, я перепитаю.'),\n    sec('Префікси категорій', '<b>політики:</b> безпека, процедури, дисципліна<br><b>інструкції:</b> Redmine, пошта, LMS, 1С, ЕЦП<br><b>hr:</b> або <b>податки:</b> відпустки, декларування, довідки<br><b>посади:</b> профілі посад<br><b>розмітка:</b> інструкції з розмітки для клієнтських проєктів<br><b>всі:</b> без обмеження<br><br>Приклад: «розмітка: коли розмічати частково видимий об\\'єкт у проєкті <назва>?»<br>Без префікса категорію я визначу сам. Якщо в категорії немає відповіді, шукаю по всій базі.'),\n    sec('Команди', '<b>допомога</b> — коротка довідка<br><b>категорії</b> — список категорій<br><b>інструкції:</b> (лише префікс) — усі документи категорії<br><b>інструкція</b> — ця повна інструкція'),\n    sec('Як читати відповідь', 'Під відповіддю: файл і сторінки, перевіряйте першоджерело для важливих рішень. «Категорія» показує, де я шукав. «Не знайшов» означає, що в документах цього немає: я не вигадую.'),\n    sec('Оцінка і якщо не знайшов', 'Натисніть 👍 або 👎 під відповіддю: це допомагає покращувати бот.<br>Не знайшов? Переформулюйте, додайте назву проєкту, спробуйте інший префікс або «всі:», або зверніться до керівника чи HR.'),\n    sec('Обмеження', 'Відповідаю лише за документами компанії. Приклади на скриншотах бачу як опис, а не як картинку: якщо відповідь залежить від прикладу, відкрийте документ. Не вводьте паролі та особисті дані.'),\n  ];\n  const body = { cardsV2: [{ cardId: 'documindyGuide', card: { header: { title: 'DocuMindy', subtitle: 'Інструкція з використання' }, sections } }] };\n  return [{ json: { space: ev.space, body } }];\n}\nlet html;\nif (cmd.startsWith('list:')) {\n  const c = cmd.slice(5);\n  const names = hits.map(h => String(h.value).replace(/\\.pdf$/i, '')).sort((a, b) => a.localeCompare(b, 'uk'));\n  const max = c === 'markup' ? 25 : 50;\n  html = '<b>' + esc(LBL[c]) + '</b>: документів ' + names.length + '<br>' + names.slice(0, max).map(n => '• ' + esc(n)).join('<br>')\n    + (names.length > max ? '<br>…і ще ' + (names.length - max) : '')\n    + '<br><br>Щоб шукати лише тут, почніть запит із «' + PFX[c] + '».';\n} else {\n  const cats = Object.keys(LBL).map(c => '• <b>' + esc(LBL[c]) + '</b> (' + PFX[c] + ') — ' + esc(DESC[c])).join('<br>');\n  html = (cmd === 'help' ? 'Я — DocuMindy, корпоративний асистент. Відповідаю на запитання за внутрішніми документами та інструкціями з розмітки даних і вказую файл та сторінку.<br><br>' : '')\n    + '<b>Категорії</b><br>' + cats\n    + '<br><br>Просто напишіть запитання — категорію я визначу сам. Або почніть із префікса: «політики: …», «розмітка: …», «всі: …» (без обмеження). Напишіть лише префікс (наприклад «інструкції:»), щоб побачити документи категорії.<br><br>📖 Потрібна повна інструкція з використання? Напишіть <b>інструкція</b>.';\n}\nif (html.length > 3500) html = html.slice(0, 3500) + '…';\nconst body = { cardsV2: [{ cardId: 'documindyHelp', card: { header: { title: 'DocuMindy', subtitle: 'Довідка' }, sections: [{ widgets: [{ textParagraph: { text: html } }] }] } }] };\nreturn [{ json: { space: ev.space, body } }];"
+      },
+      "id": "a1b2c3d4-0008-4000-8000-000000000008",
+      "name": "Format Service Card",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "k1",
+              "leftValue": "={{ $('Normalize Chat Event').item.json.rating }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0009-4000-8000-000000000009",
+      "name": "Is Feedback Click?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1232,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "<DATA_TABLE_ID>"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "askedAt": "={{ new Date().toISOString() }}",
+            "userHash": "={{ (() => { const s = 'documindy|' + String($('Normalize Chat Event').item.json.sessionId).split('|').pop(); let a = 0xdeadbeef, b = 0x41c6ce57; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 2654435761); b = Math.imul(b ^ c, 1597334677); } a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909); b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909); return (4294967296 * (2097151 & b) + (a >>> 0)).toString(36); })() }}",
+            "rating": "={{ $('Normalize Chat Event').item.json.rating }}",
+            "question": "={{ $('Normalize Chat Event').item.json.fbQuestion }}",
+            "topSource": "={{ $('Normalize Chat Event').item.json.fbSource }}",
+            "category": "={{ $('Normalize Chat Event').item.json.fbCategory }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "askedAt",
+              "displayName": "askedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "userHash",
+              "displayName": "userHash",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "question",
+              "displayName": "question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "topSource",
+              "displayName": "topSource",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0010-4000-8000-000000000010",
+      "name": "Log Feedback",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ev = $('Normalize Chat Event').first().json;\nconst text = ev.rating === 'up' ? 'Дякую за відгук 👍' : 'Дякую за відгук. Запишу, щоб покращити відповіді 👎';\nreturn [{ json: { space: ev.space, body: { text } } }];"
+      },
+      "id": "a1b2c3d4-0011-4000-8000-000000000011",
+      "name": "Format Feedback Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        -448
+      ]
     }
   ],
   "connections": {
@@ -435,7 +843,7 @@
       "main": [
         [
           {
-            "node": "Ask DocuMindy (Flowise)",
+            "node": "Is Feedback Click?",
             "type": "main",
             "index": 0
           }
@@ -446,7 +854,7 @@
       "main": [
         [
           {
-            "node": "Format Chat Card",
+            "node": "Answer Not Found In Category?",
             "type": "main",
             "index": 0
           }
@@ -503,6 +911,162 @@
         [
           {
             "node": "Normalize Chat Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Category Prefix?": {
+      "main": [
+        [
+          {
+            "node": "Set Category",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Classify Category (Gemini)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Category (Gemini)": {
+      "main": [
+        [
+          {
+            "node": "Set Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Category": {
+      "main": [
+        [
+          {
+            "node": "Ask DocuMindy (Flowise)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Not Found In Category?": {
+      "main": [
+        [
+          {
+            "node": "Ask DocuMindy (All Categories)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Chat Card",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask DocuMindy (All Categories)": {
+      "main": [
+        [
+          {
+            "node": "Format Chat Card",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Error Card",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Service Command?": {
+      "main": [
+        [
+          {
+            "node": "List Documents (Qdrant)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Has Category Prefix?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Documents (Qdrant)": {
+      "main": [
+        [
+          {
+            "node": "Format Service Card",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Service Card": {
+      "main": [
+        [
+          {
+            "node": "Send Chat Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Feedback Click?": {
+      "main": [
+        [
+          {
+            "node": "Log Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Service Command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Feedback": {
+      "main": [
+        [
+          {
+            "node": "Format Feedback Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Feedback Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Chat Message",
             "type": "main",
             "index": 0
           }
