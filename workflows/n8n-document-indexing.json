@@ -52,6 +52,18 @@
               "name": "docMeta",
               "value": "{}",
               "type": "string"
+            },
+            {
+              "id": "cfg-inbox",
+              "name": "inboxFolders",
+              "value": "{\"<INBOX_FOLDER_ID_POLICY>\": \"policy\", \"<INBOX_FOLDER_ID_HOWTO>\": \"howto\", \"<INBOX_FOLDER_ID_HR>\": \"hr\", \"<INBOX_FOLDER_ID_ROLE>\": \"role\", \"<INBOX_FOLDER_ID_MARKUP>\": \"markup\"}",
+              "type": "string"
+            },
+            {
+              "id": "cfg-skipped",
+              "name": "skippedFolderId",
+              "value": "<SKIPPED_FOLDER_ID>",
+              "type": "string"
             }
           ]
         },
@@ -95,11 +107,11 @@
           "parameters": [
             {
               "name": "q",
-              "value": "=mimeType = 'application/pdf' and trashed = false and '{{ $json.driveFolderId }}' in parents"
+              "value": "=mimeType = 'application/pdf' and trashed = false and ({{ [$json.driveFolderId, ...Object.keys(JSON.parse($json.inboxFolders || '{}'))].map(i => \"'\" + i + \"' in parents\").join(' or ') }})"
             },
             {
               "name": "fields",
-              "value": "nextPageToken,files(id,name,modifiedTime)"
+              "value": "nextPageToken,files(id,name,modifiedTime,parents,size)"
             },
             {
               "name": "pageSize",
@@ -173,7 +185,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const cfg = $('Config').first().json;\n// білий список файлів бази знань: ID Drive (includeFileIds) і/або назва файлу з довідника docMeta { назва: [категорія, підкатегорія] }\nconst ids = cfg.includeFileIds ? new Set(JSON.parse(cfg.includeFileIds)) : null;\nconst meta = cfg.docMeta ? JSON.parse(cfg.docMeta) : {};\nconst hasMeta = Object.keys(meta).length > 0;\nconst re = cfg.fileNameRegex ? new RegExp(cfg.fileNameRegex, 'i') : null;\nreturn $input.all()\n  .filter(i => (!ids && !re && !hasMeta) || (ids && ids.has(i.json.id)) || meta[i.json.name] || (re && re.test(i.json.name)))\n  .map(i => ({ json: { id: i.json.id, name: i.json.name, modifiedTime: i.json.modifiedTime, category: (meta[i.json.name] || [])[0] || 'other', sub: (meta[i.json.name] || [])[1] || '', vision: (meta[i.json.name] || [])[2] === 'v' } }));"
+        "jsCode": "const cfg = $('Config').first().json;\n// білий список файлів бази знань: ID Drive (includeFileIds), назва файлу з довідника docMeta { назва: [категорія, підкатегорія, 'v'] }\n// і папка-приймач inboxFolders { ID підпапки: категорія }: усе, що лежить у ній, додається автоматично\nconst ids = cfg.includeFileIds ? new Set(JSON.parse(cfg.includeFileIds)) : null;\nconst meta = cfg.docMeta ? JSON.parse(cfg.docMeta) : {};\nconst inbox = cfg.inboxFolders ? JSON.parse(cfg.inboxFolders) : {};\nconst hasMeta = Object.keys(meta).length > 0;\nconst re = cfg.fileNameRegex ? new RegExp(cfg.fileNameRegex, 'i') : null;\nconst inboxCat = f => (f.parents || []).map(p => inbox[p]).find(Boolean);\nreturn $input.all()\n  .filter(i => inboxCat(i.json) || (!ids && !re && !hasMeta) || (ids && ids.has(i.json.id)) || meta[i.json.name] || (re && re.test(i.json.name)))\n  .map(i => { const f = i.json; const ic = inboxCat(f); const m = meta[f.name] || [];\n    return { json: { id: f.id, name: f.name, modifiedTime: f.modifiedTime, category: ic || m[0] || 'other', sub: ic ? '' : (m[1] || ''),\n      vision: ic ? Number(f.size || 0) <= 14e6 : m[2] === 'v', inbox: !!ic, parent: (f.parents || [])[0] || '' } }; });"
       },
       "id": "4674df29-00bd-4d14-8658-4f5b0a8acb16",
       "name": "Select Files by Name",
@@ -509,7 +521,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const file = $('Loop Over Files').first().json;\nconst batches = $('Chunk Pages').all();\nfunction uuid(s) {\n  let a = 0x9e3779b9, b = 0x85ebca6b, c = 0xc2b2ae35, d = 0x27d4eb2f;\n  for (let i = 0; i < s.length; i++) {\n    const k = s.charCodeAt(i);\n    a = Math.imul(a ^ k, 597399067); b = Math.imul(b ^ k, 2869860233);\n    c = Math.imul(c ^ k, 951274213); d = Math.imul(d ^ k, 2716044179);\n  }\n  a ^= (b ^ c ^ d); b ^= a; c ^= b; d ^= c;\n  const x = [a, b, c, d].map(v => (v >>> 0).toString(16).padStart(8, '0')).join('');\n  return x.slice(0, 8) + '-' + x.slice(8, 12) + '-4' + x.slice(13, 16) + '-8' + x.slice(17, 20) + '-' + x.slice(20, 32);\n}\nconst points = [];\nlet n = 0;\n$input.all().forEach((it, bi) => {\n  const chunks = batches[bi].json.chunks;\n  (it.json.embeddings || []).forEach((e, i) => {\n    points.push({\n      id: uuid(file.id + ':' + n),\n      vector: e.values,\n      payload: {\n        content: chunks[i].text,\n        metadata: { fileId: file.id, fileName: file.name, category: file.category || 'other', sub: file.sub || '', vision: !!file.vision, modifiedTime: file.modifiedTime, chunk: n, loc: { pageNumber: chunks[i].page } }\n      }\n    });\n    n++;\n  });\n});\nreturn [{ json: { points, count: points.length } }];"
+        "jsCode": "const file = $('Loop Over Files').first().json;\nconst batches = $('Chunk Pages').all();\nfunction uuid(s) {\n  let a = 0x9e3779b9, b = 0x85ebca6b, c = 0xc2b2ae35, d = 0x27d4eb2f;\n  for (let i = 0; i < s.length; i++) {\n    const k = s.charCodeAt(i);\n    a = Math.imul(a ^ k, 597399067); b = Math.imul(b ^ k, 2869860233);\n    c = Math.imul(c ^ k, 951274213); d = Math.imul(d ^ k, 2716044179);\n  }\n  a ^= (b ^ c ^ d); b ^= a; c ^= b; d ^= c;\n  const x = [a, b, c, d].map(v => (v >>> 0).toString(16).padStart(8, '0')).join('');\n  return x.slice(0, 8) + '-' + x.slice(8, 12) + '-4' + x.slice(13, 16) + '-8' + x.slice(17, 20) + '-' + x.slice(20, 32);\n}\nconst points = [];\nlet n = 0;\n$input.all().forEach((it, bi) => {\n  const chunks = batches[bi].json.chunks;\n  (it.json.embeddings || []).forEach((e, i) => {\n    points.push({\n      id: uuid(file.id + ':' + n),\n      vector: e.values,\n      payload: {\n        content: chunks[i].text,\n        metadata: { inbox: !!file.inbox, fileId: file.id, fileName: file.name, category: file.category || 'other', sub: file.sub || '', vision: !!file.vision, modifiedTime: file.modifiedTime, chunk: n, loc: { pageNumber: chunks[i].page } }\n      }\n    });\n    n++;\n  });\n});\nreturn [{ json: { points, count: points.length } }];"
       }
     },
     {
@@ -629,6 +641,362 @@
         3120,
         620
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Для файлів із папки-приймача: не індексуємо документи з паролями, ключами, телефонами чи особистою поштою\nconst file = $('Loop Over Files').first().json;\nconst items = $input.all();\nif (!file.inbox) return items;\nconst text = items.map(i => (i.json.chunks || []).map(c => c.text).join('\\n')).join('\\n');\nconst SECRET = /(парол\\w*|password|пароль|pass|логін|логин|login|token|api[_ -]?key|secret)\\s*[:=]\\s*\\S{6,}/i;\nconst KEY = /(AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-[A-Za-z0-9]{20,})/;\nconst PHONE = /(?:\\+?38)?[\\s(]*0\\d{2}[\\s)\\-]*\\d{3}[\\s\\-]?\\d{2}[\\s\\-]?\\d{2}/;\nconst PERSONAL = /[\\w.+-]+@(gmail|ukr|yahoo|outlook|hotmail|icloud|i)\\.(com|net)\\b/i;\nlet reason = '';\nif (SECRET.test(text)) reason = 'у тексті схоже на пароль або логін зі значенням';\nelse if (KEY.test(text)) reason = 'у тексті схоже на ключ або токен';\nelse if (PHONE.test(text)) reason = 'у тексті є номер телефону';\nelse if (PERSONAL.test(text)) reason = 'у тексті є особиста поштова адреса';\nif (reason) return [{ json: { hasChunks: false, blocked: true, reason, chunks: [], requests: [] } }];\nreturn items;"
+      },
+      "id": "e1000000-0001-4000-8000-000000000001",
+      "name": "Check Inbox Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2892,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "0002",
+              "leftValue": "={{ !!$('Loop Over Files').item.json.inbox }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e1000000-0002-4000-8000-000000000002",
+      "name": "Inbox File Skipped?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3224,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $('Loop Over Files').item.json.id }}?addParents={{ $('Config').first().json.skippedFolderId }}&removeParents={{ $('Loop Over Files').item.json.parent }}&supportsAllDrives=true",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {}
+      },
+      "id": "e1000000-0003-4000-8000-000000000003",
+      "name": "Move To Skipped Folder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3448,
+        620
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google Service Account RAG-bot"
+        },
+        "googleOAuth2Api": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google account"
+        },
+        "googleDriveOAuth2Api": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Google Drive OAuth (DocuMindy)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "<INBOX_LOG_TABLE_ID>"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "at": "={{ new Date().toISOString() }}",
+            "fileName": "={{ $('Loop Over Files').item.json.name }}",
+            "category": "={{ $('Loop Over Files').item.json.category }}",
+            "status": "пропущено",
+            "reason": "={{ ($('Check Inbox Text').first().json.reason || 'у файлі немає тексту (скан без розпізнавання)') + ($json.error ? ' (файл не вдалося перемістити, прибери його з папки вручну)' : '; файл переміщено в «Пропущені»') }}",
+            "link": "={{ 'https://drive.google.com/file/d/' + $('Loop Over Files').item.json.id + '/view' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "at",
+              "displayName": "at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fileName",
+              "displayName": "fileName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "link",
+              "displayName": "link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e1000000-0004-4000-8000-000000000004",
+      "name": "Log Inbox Skipped",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3672,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "0005",
+              "leftValue": "={{ !!$('Loop Over Files').item.json.inbox }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e1000000-0005-4000-8000-000000000005",
+      "name": "Inbox File Indexed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3884,
+        -24
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "<INBOX_LOG_TABLE_ID>"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "at": "={{ new Date().toISOString() }}",
+            "fileName": "={{ $('Loop Over Files').item.json.name }}",
+            "category": "={{ $('Loop Over Files').item.json.category }}",
+            "status": "проіндексовано",
+            "reason": "={{ ($('Build Qdrant Points').first().json.count || '') + ' фрагментів' }}",
+            "link": "={{ 'https://drive.google.com/file/d/' + $('Loop Over Files').item.json.id + '/view' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "at",
+              "displayName": "at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fileName",
+              "displayName": "fileName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "link",
+              "displayName": "link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e1000000-0006-4000-8000-000000000006",
+      "name": "Log Inbox Indexed",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4108,
+        -24
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=<QDRANT_URL>/collections/documindy_policies/facet",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "qdrantApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: 'metadata.fileId', limit: 1000, exact: true, filter: { must: [{ key: 'metadata.inbox', match: { value: true } }] } }) }}",
+        "options": {}
+      },
+      "id": "e1000000-0007-4000-8000-000000000007",
+      "name": "Find Removed Inbox Files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1344,
+        560
+      ],
+      "credentials": {
+        "qdrantApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Qdrant account Selfhosted"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ID файлів, які в базі позначені як inbox, але вже зникли з папки-приймача\nconst inboxIds = new Set($('Select Files by Name').all().filter(i => i.json.inbox).map(i => i.json.id));\nconst hits = ($input.first().json.result?.hits) || [];\nconst gone = hits.map(h => String(h.value)).filter(id => !inboxIds.has(id));\nif (!gone.length) return [];\nreturn [{ json: { gone } }];"
+      },
+      "id": "e1000000-0008-4000-8000-000000000008",
+      "name": "Pick Removed Inbox Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=<QDRANT_URL>/collections/documindy_policies/points/delete?wait=true",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "qdrantApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: { must: [{ key: 'metadata.fileId', match: { any: $json.gone } }] } }) }}",
+        "options": {}
+      },
+      "id": "e1000000-0009-4000-8000-000000000009",
+      "name": "Delete Removed Chunks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1792,
+        560
+      ],
+      "credentials": {
+        "qdrantApi": {
+          "id": "<CREDENTIAL_ID>",
+          "name": "Qdrant account Selfhosted"
+        }
+      }
     }
   ],
   "connections": {
@@ -734,6 +1102,11 @@
             "node": "Sync Finished",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Find Removed Inbox Files",
+            "type": "main",
+            "index": 0
           }
         ],
         [
@@ -800,7 +1173,7 @@
       "main": [
         [
           {
-            "node": "Has Chunks?",
+            "node": "Check Inbox Text",
             "type": "main",
             "index": 0
           }
@@ -818,7 +1191,7 @@
         ],
         [
           {
-            "node": "Loop Over Files",
+            "node": "Inbox File Skipped?",
             "type": "main",
             "index": 0
           }
@@ -858,7 +1231,7 @@
       "main": [
         [
           {
-            "node": "Loop Over Files",
+            "node": "Inbox File Indexed?",
             "type": "main",
             "index": 0
           }
@@ -917,6 +1290,108 @@
         [
           {
             "node": "Chunk Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Inbox Text": {
+      "main": [
+        [
+          {
+            "node": "Has Chunks?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inbox File Skipped?": {
+      "main": [
+        [
+          {
+            "node": "Move To Skipped Folder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move To Skipped Folder": {
+      "main": [
+        [
+          {
+            "node": "Log Inbox Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Inbox Skipped": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inbox File Indexed?": {
+      "main": [
+        [
+          {
+            "node": "Log Inbox Indexed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Inbox Indexed": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Removed Inbox Files": {
+      "main": [
+        [
+          {
+            "node": "Pick Removed Inbox Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Removed Inbox Files": {
+      "main": [
+        [
+          {
+            "node": "Delete Removed Chunks",
             "type": "main",
             "index": 0
           }
